@@ -1,4 +1,4 @@
-# OpenVPN on EC2 (Amazon Linux 2023)
+# OpenVPN Server on EC2 (Amazon Linux 2023)
 
 A single interactive script that sets up a full-tunnel OpenVPN server on a fresh Amazon Linux 2023 EC2 instance. Includes hardened iptables rules, persistent NAT, and optional FreeDNS dynamic DNS.
 
