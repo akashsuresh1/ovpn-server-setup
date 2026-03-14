@@ -8,8 +8,8 @@ A single interactive script that sets up a full-tunnel OpenVPN server on a fresh
 
 ### Account/Payment Setup
 
-- Create a Wise account and order a (free) virtual card at https://wise.com/au/virtual-card/
-- If dynamic DNS is required, create an account on https://freedns.afraid.org
+- Create a free Wise account and order a (free) virtual card at https://wise.com/au/virtual-card/
+- If dynamic DNS is required, create a free account on https://freedns.afraid.org
   - AWS Systems Manager can be used to turn off/on your instance nightly to change the public IP address of your instance (costs ~A$0.30/month)
 - Create a new AWS account - Provides 12 months of freetier.micro EC2 intance
   - TIP: You can use `john.doe+aws@emailprovider.com`. When one year is completed, use `+aws1` and repeat server setup and regenerate client certs
