@@ -9,7 +9,7 @@ A single interactive script that sets up a full-tunnel OpenVPN server on a fresh
 ### Account/Payment Setup
 
 - Create a free Wise account and order a (free) virtual card at https://wise.com/au/virtual-card/
-  - AWS will perform a $1 card check during account setup so you will need to load the card accordingly
+  - AWS will perform a $1 USD card check during account setup so you will need to load the card accordingly
   - AWS doesn't permit the same (virtual) card to be re-used. Virtual cards are free to create/destroy.
 - If dynamic DNS is required, create a free account on https://freedns.afraid.org
   - AWS Systems Manager can be used to turn off/on your instance nightly to change the public IP address of your instance (costs ~A$0.30/month)
