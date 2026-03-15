@@ -21,7 +21,7 @@ A single interactive script that sets up a full-tunnel OpenVPN server on a fresh
 | Requirement | Detail |
 |---|---|
 | EC2 instance | Amazon Linux 2023, any Nitro instance type |
-| Instance size | `t3.micro` or larger (t3.micro is sufficient for personal use) |
+| Instance size | `t3.micro` or `t4g.micro` |
 | Security group | Inbound: **UDP on your chosen port** + TCP 22 (SSH) |
 | Source/dest check | Must be **disabled** on the EC2 instance (EC2 console → Networking → Change source/dest check) |
 | User | Script must be run as root (`sudo bash setup.sh`) |
