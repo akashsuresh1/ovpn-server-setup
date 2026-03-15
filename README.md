@@ -14,8 +14,9 @@ A single interactive script that sets up a full-tunnel OpenVPN server on a fresh
 - If dynamic DNS is required, create a free account on https://freedns.afraid.org
   - AWS Systems Manager can be used to turn off/on your instance nightly to change the public IP address of your instance (costs ~A$0.30/month)
 - Create a new AWS account - Provides 12 months of freetier.micro EC2 intance
-  - TIP: You can use `john.doe+aws@emailprovider.com`. When free tier duration is completed, use `+aws1` isntead and repeat server setup and regenerate client certs
+  - TIP: When you use `john.doe@emailprovider.com` to avail free tier, after the duration is completed, append `+aws1` to user name and repeat server setup, and regenerate client certs (Ex: `john.doe+aws1@emailprovider.com`)
   - Recommended region: Zurich `eu-central-2`
+    - The further the region is from you, the higher the latency 
   - For phone number verification, use temp numbers services like https://temp-number.com/ or https://sms24.me/en/countries/au
 
 | Requirement | Detail |
@@ -45,8 +46,7 @@ sudo bash ovpn-server-setup.sh
 The script will prompt you for:
 - **VPN port** — defaults to 1194, but a custom port is strongly recommended
 - **VPN subnet** — defaults to 10.8.0.0/24
-- **FreeDNS URL** — optional, for dynamic DNS (see section below)
-- **Client certificates** — optional, generate one or more `.ovpn` profiles
+- **Client certificates** — optional, generate one or more `.ovpn` client profiles
 
 When it finishes, any generated `.ovpn` files are at `/root/<name>.ovpn`. Copy them off the server securely (e.g. `scp`) before distributing to clients.
 Install OpenVPN client on the required clients from https://openvpn.net/client/
@@ -65,7 +65,6 @@ Install OpenVPN client on the required clients from https://openvpn.net/client/
 | **MTU** | `tun-mtu 1420` + `mssfix 1380` — prevents EMSGSIZE drops on Nitro |
 | **IP forwarding** | `net.ipv4.ip_forward=1` persisted via `/etc/sysctl.d/99-openvpn.conf` |
 | **iptables** | Hardened INPUT chain, stateful FORWARD, NAT masquerade — persisted via `iptables-services` |
-| **FreeDNS** | `@reboot` cron entry in root crontab (if URL provided) |
 
 ---
 
@@ -144,7 +143,7 @@ sudo crontab -e
 ```bash
 curl https://checkip.amazonaws.com                          # server's current public IP
 host `<unique_subdomain>.<free_available_domain_name>.com`  # should match
-cat /tmp/freedns_update.log                                 # FreeDNS response
+cat /tmp/freedns_<subdomain>_<domain>_com.log               # FreeDNS response
 ```
 
 ---
