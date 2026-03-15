@@ -110,6 +110,35 @@ sudo crontab -e
    remote myvpn.chickenkiller.com <specified_port>
    ```
 
+### Nightly Stop/Start (Optional)
+- Create an IAM role that SSM can use to stop/start the instance
+- Trust relationship required
+  ```
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Service": [
+                    "ec2.amazonaws.com",
+                    "ssm.amazonaws.com"
+                ]
+            },
+            "Action": "sts:AssumeRole"
+        }
+    ]
+  }
+  ```
+- AWS Managed Permissions policies to add:
+  - AmazonEC2FullAccess
+  - AmazonSSMManagedEC2InstanceDefaultPolicy
+  - AmazonSSMManagedInstanceCore
+ 
+- Create association from AWS Systems Manager > State Manager (using the IAM role created above)
+  - Stop-EC2-Instance-Daily > cron(0 00 16 ? * * *)
+  - Start-EC2-Instance-Daily > cron(0 04 16 ? * * *)
+
 ### Verify after reboot
 
 ```bash
