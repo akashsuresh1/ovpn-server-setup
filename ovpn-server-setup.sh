@@ -167,8 +167,8 @@ push "dhcp-option DNS 1.1.1.1"
 push "dhcp-option DNS 1.0.0.1"
 
 # Reduce MTU to avoid EMSGSIZE drops on Nitro instances
-mssfix 1300
-tun-mtu 1500
+tun-mtu 1420
+mssfix 1380
 
 keepalive 10 120
 persist-key
@@ -280,8 +280,7 @@ nobind
 persist-key
 persist-tun
 
-data-ciphers AES-256-GCM:AES-128-GCM:AES-256-CBC
-data-ciphers-fallback AES-256-CBC
+cipher AES-256-CBC
 auth SHA256
 
 remote-cert-tls server
