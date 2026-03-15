@@ -16,7 +16,7 @@ header()  { echo -e "\n${BOLD}── $* ──${RESET}"; }
 
 # ── Root check ────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
-  error "Run this script as root: sudo bash ovpn-server-setup.sh"
+  error "Run this script as root:  sudo bash ovpn-server-setup.sh"
   exit 1
 fi
 
@@ -28,7 +28,7 @@ header "Configuration"
 # ── VPN port ──────────────────────────────────────────────────────────────────
 echo
 warn "Using the default port 1194 makes your VPN easier to detect and block."
-warn "A custom port (e.g. 32030, 443, 8080) is strongly recommended."
+warn "A custom port (e.g. 32030) is strongly recommended."
 echo
 read -rp "$(echo -e "${BOLD}VPN port${RESET} [default: 1194]: ")" VPN_PORT
 VPN_PORT="${VPN_PORT:-1194}"
@@ -78,43 +78,75 @@ success "Public IP: $PUBLIC_IP"
 # =============================================================================
 header "Installing packages"
 
-info "Installing openvpn, easy-rsa, iptables-services..."
-dnf install -y openvpn easy-rsa iptables-services -q
+# openvpn and iptables-services are in the standard AL2023 repo
+# easy-rsa is NOT packaged for AL2023 — installed from GitHub below
+info "Installing openvpn, iptables-services..."
+dnf install -y openvpn iptables-services -q
 success "Packages installed."
 
 # =============================================================================
-# 4. PKI SETUP
+# 4. EASYRSA — install latest release from GitHub
+# =============================================================================
+header "Installing EasyRSA"
+
+if [[ ! -f /usr/local/bin/easyrsa ]]; then
+  info "Resolving latest EasyRSA version..."
+  EASYRSA_VERSION=$(curl -fsSL     -H "User-Agent: setup-script"     -o /dev/null -w "%{url_effective}"     "https://github.com/OpenVPN/easy-rsa/releases/latest"     | grep -oP "v\K[0-9]+\.[0-9]+\.[0-9]+")
+
+  if [[ -z "$EASYRSA_VERSION" ]]; then
+    error "Could not resolve latest EasyRSA version. Check network connectivity."
+    exit 1
+  fi
+  info "Latest EasyRSA version: ${EASYRSA_VERSION}"
+
+  EASYRSA_TMP="/tmp/EasyRSA-${EASYRSA_VERSION}.tgz"
+  EASYRSA_URL="https://github.com/OpenVPN/easy-rsa/releases/download/v${EASYRSA_VERSION}/EasyRSA-${EASYRSA_VERSION}.tgz"
+
+  info "Downloading EasyRSA ${EASYRSA_VERSION}..."
+  curl -fsSL -H "User-Agent: setup-script" "$EASYRSA_URL" -o "$EASYRSA_TMP"
+
+  info "Extracting EasyRSA..."
+  tar -xzf "$EASYRSA_TMP" -C /tmp
+  mv "/tmp/EasyRSA-${EASYRSA_VERSION}" /etc/easyrsa-bin
+  ln -sf /etc/easyrsa-bin/easyrsa /usr/local/bin/easyrsa
+  rm -f "$EASYRSA_TMP"
+  success "EasyRSA ${EASYRSA_VERSION} installed to /usr/local/bin/easyrsa"
+else
+  warn "EasyRSA already installed at /usr/local/bin/easyrsa -- skipping download."
+fi
+
+# =============================================================================
+# 5. PKI SETUP
 # =============================================================================
 header "Initialising PKI"
 
 PKI_DIR=/etc/openvpn/easy-rsa
+mkdir -p "$PKI_DIR"
 
-if [[ ! -d "$PKI_DIR" ]]; then
-  mkdir -p "$PKI_DIR"
-  cp -r /usr/share/easy-rsa/* "$PKI_DIR"/
-fi
+# EASYRSA      — path to the tarball install dir (where openssl-easyrsa.cnf lives)
+# EASYRSA_PKI  — where the generated PKI files are stored
+export EASYRSA="/etc/easyrsa-bin"
+export EASYRSA_PKI="$PKI_DIR/pki"
 
-cd "$PKI_DIR"
-
-if [[ ! -f pki/ca.crt ]]; then
+if [[ ! -f "$PKI_DIR/pki/ca.crt" ]]; then
   info "Initialising PKI..."
-  ./easyrsa init-pki
+  easyrsa init-pki
 
   info "Building CA (no passphrase)..."
-  EASYRSA_BATCH=1 ./easyrsa build-ca nopass
+  EASYRSA_BATCH=1 easyrsa build-ca nopass
 
   info "Generating DH parameters (this takes a minute)..."
-  ./easyrsa gen-dh
+  easyrsa gen-dh
 
   info "Generating server certificate..."
-  EASYRSA_BATCH=1 ./easyrsa build-server-full server nopass
+  EASYRSA_BATCH=1 easyrsa build-server-full server nopass
 
   info "Generating TLS auth key..."
   openvpn --genkey secret "$PKI_DIR/ta.key"
 
   success "PKI initialised."
 else
-  warn "PKI already exists at $PKI_DIR/pki — skipping reinitialisation."
+  warn "PKI already exists at $PKI_DIR/pki -- skipping reinitialisation."
 fi
 
 # =============================================================================
@@ -261,8 +293,8 @@ generate_client() {
     warn "Certificate for '${CLIENT_NAME}' already exists — skipping generation."
   else
     info "Generating certificate for '${CLIENT_NAME}'..."
-    cd "$PKI_DIR"
-    EASYRSA_BATCH=1 ./easyrsa build-client-full "${CLIENT_NAME}" nopass
+
+    EASYRSA_BATCH=1 easyrsa build-client-full "${CLIENT_NAME}" nopass
     success "Certificate generated."
   fi
 
