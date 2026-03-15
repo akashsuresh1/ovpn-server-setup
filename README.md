@@ -21,7 +21,7 @@ A single interactive script that sets up a full-tunnel OpenVPN server on a fresh
 | Requirement | Detail |
 |---|---|
 | EC2 instance | Amazon Linux 2023, any Nitro instance type |
-| Instance size | `t3.micro` or `t4g.micro` |
+| Instance size | `t3.micro` or `t4g.micro` (ARM) |
 | Security group | Inbound: **UDP on your chosen port** + TCP 22 (SSH) |
 | Source/dest check | Must be **disabled** on the EC2 instance (EC2 console → Networking → Change source/dest check) |
 | User | Script must be run as root (`sudo bash setup.sh`) |
@@ -62,7 +62,7 @@ Install OpenVPN client on the required clients from https://openvpn.net/client/
 | **Cipher** | `AES-256-GCM` preferred, `AES-256-CBC` kept as fallback for older clients |
 | **DNS push** | Cloudflare `1.1.1.1` / `1.0.0.1` pushed to all clients |
 | **Routing** | Full-tunnel via `redirect-gateway def1 bypass-dhcp` |
-| **MTU** | `mssfix 1300` + TCP MSS clamp — prevents EMSGSIZE drops on Nitro |
+| **MTU** | `tun-mtu 1420` + `mssfix 1380` — prevents EMSGSIZE drops on Nitro |
 | **IP forwarding** | `net.ipv4.ip_forward=1` persisted via `/etc/sysctl.d/99-openvpn.conf` |
 | **iptables** | Hardened INPUT chain, stateful FORWARD, NAT masquerade — persisted via `iptables-services` |
 | **FreeDNS** | `@reboot` cron entry in root crontab (if URL provided) |
@@ -180,8 +180,7 @@ nobind
 persist-key
 persist-tun
 
-data-ciphers AES-256-GCM:AES-128-GCM:AES-256-CBC
-data-ciphers-fallback AES-256-CBC
+cipher AES-256-CBC
 auth SHA256
 
 remote-cert-tls server
