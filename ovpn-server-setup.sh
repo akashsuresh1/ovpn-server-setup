@@ -78,10 +78,6 @@ success "Public IP: $PUBLIC_IP"
 # =============================================================================
 header "Installing packages"
 
-info "Enabling EPEL..."
-dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
-  --nogpgcheck -q 2>&1 | tail -1 || true   # tolerate if already installed
-
 info "Installing openvpn, easy-rsa, iptables-services..."
 dnf install -y openvpn easy-rsa iptables-services -q
 success "Packages installed."
