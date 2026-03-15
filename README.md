@@ -49,6 +49,7 @@ The script will prompt you for:
 - **Client certificates** — optional, generate one or more `.ovpn` profiles
 
 When it finishes, any generated `.ovpn` files are at `/root/<name>.ovpn`. Copy them off the server securely (e.g. `scp`) before distributing to clients.
+Install OpenVPN client on the required clients from https://openvpn.net/client/
 
 ---
 
