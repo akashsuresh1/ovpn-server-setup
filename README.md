@@ -15,6 +15,8 @@ A single interactive script that sets up a full-tunnel OpenVPN server on a fresh
   - AWS Systems Manager can be used to turn off/on your instance nightly to change the public IP address of your instance (costs ~A$0.30/month)
 - Create a new AWS account - Provides 12 months of freetier.micro EC2 intance
   - TIP: You can use `john.doe+aws@emailprovider.com`. When free tier duration is completed, use `+aws1` isntead and repeat server setup and regenerate client certs
+  - Recommended region: Zurich `eu-central-2`
+  - For phone number verification, use temp numbers services like https://temp-number.com/ or https://sms24.me/en/countries/au
 
 | Requirement | Detail |
 |---|---|
