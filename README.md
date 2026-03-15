@@ -31,11 +31,14 @@ A single interactive script that sets up a full-tunnel OpenVPN server on a fresh
 ## Quick start
 
 ```bash
-# 1 — Clone the repo (or only download ovpn-server-setup.sh and refer to this README) 
+# 1 - Install git
+sudo dnf install -y git
+
+# 2 — Clone the repo (or only download ovpn-server-setup.sh and refer to this README) 
 git clone https://github.com/akashsuresh1/ovpn-server-setup.git
 cd ovpn-server-setup
 
-# 2 — Run the setup script
+# 3 — Run the setup script
 sudo bash ovpn-server-setup.sh
 ```
 
