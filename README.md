@@ -94,9 +94,9 @@ EC2 public IPs change on every stop/start. FreeDNS gives your server a stable ho
 
 1. Create a free account at [freedns.afraid.org](https://freedns.afraid.org)
 2. Add a subdomain (e.g. `<unique_subdomain>.<free_available_domain_name>.com`) pointing to your current public IP
-3. Go to **Dynamic DNS** → find your subdomain → copy the **Direct URL**
+3. Go to Dynamic DNS (https://freedns.afraid.org/dynamic/) → find your subdomain → right-click copy the **Direct URL**
    - It looks like: `https://freedns.afraid.org/dynamic/update.php?YOURTOKEN`
-4. Re-run the setup script and paste it when prompted, **or** add it manually:
+4. Add it manually to root cron:
 
 ```bash
 # Add manually to root crontab
@@ -107,7 +107,7 @@ sudo crontab -e
 
 5. Update the `remote` line in all client `.ovpn` files to use the hostname instead of an IP:
    ```
-   remote myvpn.chickenkiller.com 1194
+   remote myvpn.chickenkiller.com <specified_port>
    ```
 
 ### Verify after reboot
