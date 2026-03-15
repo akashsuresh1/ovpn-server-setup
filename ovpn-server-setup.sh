@@ -16,7 +16,7 @@ header()  { echo -e "\n${BOLD}── $* ──${RESET}"; }
 
 # ── Root check ────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
-  error "Run this script as root:  sudo bash ovpn-server-setup.sh"
+  error "Run this script as root: sudo bash ovpn-server-setup.sh"
   exit 1
 fi
 
