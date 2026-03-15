@@ -16,7 +16,7 @@ header()  { echo -e "\n${BOLD}── $* ──${RESET}"; }
 
 # ── Root check ────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
-  error "Run this script as root: sudo bash ovpn-server-setup.sh"
+  error "Run this script as root:  sudo bash setup.sh"
   exit 1
 fi
 
@@ -28,7 +28,7 @@ header "Configuration"
 # ── VPN port ──────────────────────────────────────────────────────────────────
 echo
 warn "Using the default port 1194 makes your VPN easier to detect and block."
-warn "A custom port (e.g. 32030, 443, 8080) is strongly recommended."
+warn "A custom port (e.g. 32030) is strongly recommended."
 echo
 read -rp "$(echo -e "${BOLD}VPN port${RESET} [default: 1194]: ")" VPN_PORT
 VPN_PORT="${VPN_PORT:-1194}"
@@ -43,18 +43,6 @@ echo
 read -rp "$(echo -e "${BOLD}VPN subnet${RESET} [default: 10.8.0.0]: ")" VPN_SUBNET
 VPN_SUBNET="${VPN_SUBNET:-10.8.0.0}"
 success "Subnet: $VPN_SUBNET/24"
-
-# ── FreeDNS ───────────────────────────────────────────────────────────────────
-echo
-info "FreeDNS dynamic DNS keeps your hostname pointing at this instance after"
-info "reboots. Leave blank to skip (you can add it manually later — see README)."
-echo
-read -rp "$(echo -e "${BOLD}FreeDNS update URL${RESET} (or press Enter to skip): ")" FREEDNS_URL
-if [[ -n "$FREEDNS_URL" ]]; then
-  success "FreeDNS URL recorded."
-else
-  warn "Skipping FreeDNS setup."
-fi
 
 # =============================================================================
 # 2. DETECT ENVIRONMENT
@@ -78,47 +66,75 @@ success "Public IP: $PUBLIC_IP"
 # =============================================================================
 header "Installing packages"
 
-info "Enabling EPEL..."
-dnf install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
-  --nogpgcheck -q 2>&1 | tail -1 || true   # tolerate if already installed
-
-info "Installing openvpn, easy-rsa, iptables-services..."
-dnf install -y openvpn easy-rsa iptables-services -q
+# openvpn and iptables-services are in the standard AL2023 repo
+# easy-rsa is NOT packaged for AL2023 — installed from GitHub below
+info "Installing openvpn, iptables-services, cron"
+dnf install -y openvpn iptables-services cronie -q
 success "Packages installed."
 
 # =============================================================================
-# 4. PKI SETUP
+# 4. EASYRSA — install latest release from GitHub
+# =============================================================================
+header "Installing EasyRSA"
+
+if [[ ! -f /usr/local/bin/easyrsa ]]; then
+  info "Resolving latest EasyRSA version..."
+  EASYRSA_VERSION=$(curl -fsSL     -H "User-Agent: setup-script"     -o /dev/null -w "%{url_effective}"     "https://github.com/OpenVPN/easy-rsa/releases/latest"     | grep -oP "v\K[0-9]+\.[0-9]+\.[0-9]+")
+
+  if [[ -z "$EASYRSA_VERSION" ]]; then
+    error "Could not resolve latest EasyRSA version. Check network connectivity."
+    exit 1
+  fi
+  info "Latest EasyRSA version: ${EASYRSA_VERSION}"
+
+  EASYRSA_TMP="/tmp/EasyRSA-${EASYRSA_VERSION}.tgz"
+  EASYRSA_URL="https://github.com/OpenVPN/easy-rsa/releases/download/v${EASYRSA_VERSION}/EasyRSA-${EASYRSA_VERSION}.tgz"
+
+  info "Downloading EasyRSA ${EASYRSA_VERSION}..."
+  curl -fsSL -H "User-Agent: setup-script" "$EASYRSA_URL" -o "$EASYRSA_TMP"
+
+  info "Extracting EasyRSA..."
+  tar -xzf "$EASYRSA_TMP" -C /tmp
+  mv "/tmp/EasyRSA-${EASYRSA_VERSION}" /etc/easyrsa-bin
+  ln -sf /etc/easyrsa-bin/easyrsa /usr/local/bin/easyrsa
+  rm -f "$EASYRSA_TMP"
+  success "EasyRSA ${EASYRSA_VERSION} installed to /usr/local/bin/easyrsa"
+else
+  warn "EasyRSA already installed at /usr/local/bin/easyrsa -- skipping download."
+fi
+
+# =============================================================================
+# 5. PKI SETUP
 # =============================================================================
 header "Initialising PKI"
 
 PKI_DIR=/etc/openvpn/easy-rsa
+mkdir -p "$PKI_DIR"
 
-if [[ ! -d "$PKI_DIR" ]]; then
-  mkdir -p "$PKI_DIR"
-  cp -r /usr/share/easy-rsa/* "$PKI_DIR"/
-fi
+# EASYRSA      — path to the tarball install dir (where openssl-easyrsa.cnf lives)
+# EASYRSA_PKI  — where the generated PKI files are stored
+export EASYRSA="/etc/easyrsa-bin"
+export EASYRSA_PKI="$PKI_DIR/pki"
 
-cd "$PKI_DIR"
-
-if [[ ! -f pki/ca.crt ]]; then
+if [[ ! -f "$PKI_DIR/pki/ca.crt" ]]; then
   info "Initialising PKI..."
-  ./easyrsa init-pki
+  easyrsa init-pki
 
   info "Building CA (no passphrase)..."
-  EASYRSA_BATCH=1 ./easyrsa build-ca nopass
+  EASYRSA_BATCH=1 easyrsa build-ca nopass
 
   info "Generating DH parameters (this takes a minute)..."
-  ./easyrsa gen-dh
+  easyrsa gen-dh
 
   info "Generating server certificate..."
-  EASYRSA_BATCH=1 ./easyrsa build-server-full server nopass
+  EASYRSA_BATCH=1 easyrsa build-server-full server nopass
 
   info "Generating TLS auth key..."
   openvpn --genkey secret "$PKI_DIR/ta.key"
 
   success "PKI initialised."
 else
-  warn "PKI already exists at $PKI_DIR/pki — skipping reinitialisation."
+  warn "PKI already exists at $PKI_DIR/pki -- skipping reinitialisation."
 fi
 
 # =============================================================================
@@ -234,26 +250,7 @@ else
 fi
 
 # =============================================================================
-# 9. FREEDNS DYNAMIC DNS
-# =============================================================================
-header "FreeDNS dynamic DNS"
-
-if [[ -n "$FREEDNS_URL" ]]; then
-  CRON_LINE="@reboot wget -q -O /tmp/freedns_update.log '${FREEDNS_URL}'"
-  # Add only if not already present
-  ( crontab -l 2>/dev/null | grep -v 'freedns'; echo "$CRON_LINE" ) | crontab -
-  success "FreeDNS @reboot cron entry added."
-
-  info "Running initial FreeDNS update..."
-  wget -q -O /tmp/freedns_update.log "${FREEDNS_URL}" && \
-    success "FreeDNS update sent. Response: $(cat /tmp/freedns_update.log)" || \
-    warn "FreeDNS update request failed — check the URL."
-else
-  info "FreeDNS skipped."
-fi
-
-# =============================================================================
-# 10. CLIENT CERTIFICATE GENERATION
+# 9. CLIENT CERTIFICATE GENERATION
 # =============================================================================
 header "Client certificates"
 
@@ -265,8 +262,8 @@ generate_client() {
     warn "Certificate for '${CLIENT_NAME}' already exists — skipping generation."
   else
     info "Generating certificate for '${CLIENT_NAME}'..."
-    cd "$PKI_DIR"
-    EASYRSA_BATCH=1 ./easyrsa build-client-full "${CLIENT_NAME}" nopass
+
+    EASYRSA_BATCH=1 easyrsa build-client-full "${CLIENT_NAME}" nopass
     success "Certificate generated."
   fi
 
@@ -318,7 +315,8 @@ GEN_CLIENTS="${GEN_CLIENTS:-n}"
 if [[ "${GEN_CLIENTS,,}" == "y" ]]; then
   while true; do
     echo
-    read -rp "$(echo -e "${BOLD}Client name${RESET} (e.g. laptop, phone, alice): ")" CLIENT_NAME
+    # Read from /dev/tty explicitly — EasyRSA output can swallow stdin otherwise
+    read -rp "$(echo -e "${BOLD}Client name${RESET} (e.g. laptop, phone, alice): ")" CLIENT_NAME </dev/tty
     CLIENT_NAME="${CLIENT_NAME// /-}"  # replace spaces with hyphens
     if [[ -z "$CLIENT_NAME" ]]; then
       warn "Name cannot be empty. Try again."
@@ -326,7 +324,7 @@ if [[ "${GEN_CLIENTS,,}" == "y" ]]; then
     fi
     generate_client "$CLIENT_NAME"
     echo
-    read -rp "$(echo -e "${BOLD}Generate another client?${RESET} [y/N]: ")" ANOTHER
+    read -rp "$(echo -e "${BOLD}Generate another client?${RESET} [y/N]: ")" ANOTHER </dev/tty
     ANOTHER="${ANOTHER:-n}"
     [[ "${ANOTHER,,}" == "y" ]] || break
   done
@@ -346,12 +344,9 @@ echo -e "  ${BOLD}VPN subnet${RESET}       ${VPN_SUBNET}/24"
 echo -e "  ${BOLD}WAN interface${RESET}    ${WAN_IFACE}"
 echo -e "  ${BOLD}iptables${RESET}         saved, iptables-services enabled"
 echo -e "  ${BOLD}OpenVPN${RESET}          running, enabled on boot"
-if [[ -n "$FREEDNS_URL" ]]; then
-  echo -e "  ${BOLD}FreeDNS${RESET}          @reboot cron set"
-fi
 echo
 info "Client .ovpn profiles (if generated) are in /root/"
-info "See README.md for: adding more clients, revoking certs, FreeDNS setup."
+info "See README.md for: adding more clients, revoking certs, FreeDNS dynamic DNS, and more."
 echo
 warn "Ensure your EC2 security group allows inbound UDP ${VPN_PORT}."
 echo

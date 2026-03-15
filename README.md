@@ -21,7 +21,7 @@ A single interactive script that sets up a full-tunnel OpenVPN server on a fresh
 | Requirement | Detail |
 |---|---|
 | EC2 instance | Amazon Linux 2023, any Nitro instance type |
-| Instance size | `t3.micro` or larger (t3.micro is sufficient for personal use) |
+| Instance size | `t3.micro` or `t4g.micro` |
 | Security group | Inbound: **UDP on your chosen port** + TCP 22 (SSH) |
 | Source/dest check | Must be **disabled** on the EC2 instance (EC2 console → Networking → Change source/dest check) |
 | User | Script must be run as root (`sudo bash setup.sh`) |
@@ -31,11 +31,14 @@ A single interactive script that sets up a full-tunnel OpenVPN server on a fresh
 ## Quick start
 
 ```bash
-# 1 — Clone the repo (or only download ovpn-server-setup.sh and refer to this README) 
+# 1 - Install git
+sudo dnf install -y git
+
+# 2 — Clone the repo (or only download ovpn-server-setup.sh and refer to this README) 
 git clone https://github.com/akashsuresh1/ovpn-server-setup.git
 cd ovpn-server-setup
 
-# 2 — Run the setup script
+# 3 — Run the setup script
 sudo bash ovpn-server-setup.sh
 ```
 
@@ -46,6 +49,7 @@ The script will prompt you for:
 - **Client certificates** — optional, generate one or more `.ovpn` profiles
 
 When it finishes, any generated `.ovpn` files are at `/root/<name>.ovpn`. Copy them off the server securely (e.g. `scp`) before distributing to clients.
+Install OpenVPN client on the required clients from https://openvpn.net/client/
 
 ---
 
@@ -90,9 +94,9 @@ EC2 public IPs change on every stop/start. FreeDNS gives your server a stable ho
 
 1. Create a free account at [freedns.afraid.org](https://freedns.afraid.org)
 2. Add a subdomain (e.g. `<unique_subdomain>.<free_available_domain_name>.com`) pointing to your current public IP
-3. Go to **Dynamic DNS** → find your subdomain → copy the **Direct URL**
+3. Go to Dynamic DNS (https://freedns.afraid.org/dynamic/) → find your subdomain → right-click copy the **Direct URL**
    - It looks like: `https://freedns.afraid.org/dynamic/update.php?YOURTOKEN`
-4. Re-run the setup script and paste it when prompted, **or** add it manually:
+4. Add it manually to root cron:
 
 ```bash
 # Add manually to root crontab
@@ -103,7 +107,7 @@ sudo crontab -e
 
 5. Update the `remote` line in all client `.ovpn` files to use the hostname instead of an IP:
    ```
-   remote myvpn.chickenkiller.com 1194
+   remote myvpn.chickenkiller.com <specified_port>
    ```
 
 ### Verify after reboot
