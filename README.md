@@ -57,7 +57,7 @@ Install OpenVPN client on the required clients from https://openvpn.net/client/
 
 | Component | Detail |
 |---|---|
-| **OpenVPN** | Installed via EPEL, `openvpn-server@server` systemd service, enabled on boot |
+| **OpenVPN** | `openvpn-server@server` systemd service, enabled on boot |
 | **PKI** | EasyRSA — CA, server cert, DH params, TLS auth key, all under `/etc/openvpn/easy-rsa/` |
 | **Cipher** | `AES-256-GCM` preferred, `AES-256-CBC` kept as fallback for older clients |
 | **DNS push** | Cloudflare `1.1.1.1` / `1.0.0.1` pushed to all clients |
@@ -251,8 +251,8 @@ sudo systemctl status openvpn-server@server
 # Live connection log
 sudo journalctl -u openvpn-server@server -f
 
-# Currently connected clients
-sudo cat /run/openvpn-server/status-server.log
+# Currently connected clients (look for the line beginning with "CLIENT_LIST")
+sudo cat /var/log/openvpn-status.log
 
 # Restart OpenVPN
 sudo systemctl restart openvpn-server@server
@@ -294,24 +294,28 @@ sudo journalctl -u openvpn-server@server -n 50 --no-pager
 
 ---
 
-## File layout
+## File layout (condensed)
 
 ```
 /etc/openvpn/
-├── server/
-│   └── server.conf
-└── easy-rsa/
-    ├── ta.key
-    └── pki/
-        ├── ca.crt
-        ├── dh.pem
-        ├── issued/
-        │   ├── server.crt
-        │   └── <client>.crt
-        └── private/
-            ├── ca.key          ← keep this secret
-            ├── server.key
-            └── <client>.key
+├── client
+├── easy-rsa
+│   ├── pki
+│   │   ├── ca.crt
+│   │   ├── certs_by_serial
+│   │   │   ├── ABCDEFGHIJKLMNOP123456789ABCD123.pem
+│   │   │   ├── ABCDEFGHIJKLMNOP123456789ABCD789.pem
+│   │   ├── dh.pem
+│   │   ├── issued
+│   │   │   ├── server.crt
+│   │   │   └── alice.crt
+│   │   ├── private
+│   │   │   ├── ca.key       ← keep this secret
+│   │   │   ├── server.key
+│   │   │   └── alice.key
+└── server
+    └── server.conf
+
 ```
 
 ---
