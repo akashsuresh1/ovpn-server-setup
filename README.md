@@ -1,10 +1,11 @@
 # OpenVPN Server on EC2 (Amazon Linux 2023)
 
-Full-tunnel OpenVPN server on Amazon Linux 2023, deployed from AWS CloudShell as an Auto Scaling group (ASG) with a weekly stop/start schedule. Includes hardened iptables rules, persistent NAT, and optional FreeDNS dynamic DNS.
+Full-tunnel OpenVPN server on Amazon Linux 2023, deployed from AWS CloudShell as an Auto Scaling group (ASG) with a weekly stop/start schedule. Includes hardened iptables rules, persistent NAT, and optional FreeDNS dynamic DNS. For VPN clients to keep using the same address after weekly instance replacements, configure FreeDNS before deployment.
 
-**Two actions after the account exists:**
-1. Open CloudShell, run one command → server is built, baked into an AMI, handed to an ASG, and client `.ovpn` profiles are copied to the CloudShell home dir
-2. Download the profiles via CloudShell → Actions → Download file (or `scp` from your machine)
+**Deployment flow:**
+1. For a stable client address, [set up FreeDNS](#freedns-dynamic-dns) before deployment
+2. Open CloudShell, run the deploy command → server is built, baked into an AMI, handed to an ASG, and client `.ovpn` profiles are copied to the CloudShell home dir
+3. Download the profiles via CloudShell → Actions → Download file (or `scp` from your machine)
 
 ---
 
@@ -27,7 +28,7 @@ Full-tunnel OpenVPN server on Amazon Linux 2023, deployed from AWS CloudShell as
   - AWS states existing customers are ineligible for the free plan/credits; re-used phone/card details may be flagged
 - Recommended region: Tokyo `ap-northeast-1` (default in the deploy script)
   - The further the region is from you, the higher the latency
-- If dynamic DNS is required, create a free account on https://freedns.afraid.org
+- For a stable client address across weekly ASG replacements, set up FreeDNS before deployment (see [FreeDNS dynamic DNS](#freedns-dynamic-dns))
 
 ### Free-tier instance types (accounts created on/after 15 Jul 2025)
 
@@ -48,16 +49,19 @@ Rough running cost in Tokyo, drawn from credits (check current pricing):
 
 ## Quick start (CloudShell)
 
-1. Sign in to the AWS console, switch region to **Asia Pacific (Tokyo)**, open **CloudShell** (terminal icon, top bar), run:
+The ASG replaces its instance weekly, and each replacement gets a new public IP. Before deploying, complete the [FreeDNS setup](#freedns-dynamic-dns) and have your FreeDNS Direct URL and hostname ready. This is not required to create the ASG, but without a stable DNS name the client profiles stop reaching the server after an IP change; you must then update and redistribute the profiles manually.
+
+Sign in to the AWS console, switch region to **Asia Pacific (Tokyo)**, open **CloudShell** (terminal icon, top bar), and run the command below, replacing the example URL and hostname with your own:
 
 ```bash
-git clone https://github.com/akashsuresh1/ovpn-server-setup.git && bash ovpn-server-setup/cloudshell-deploy.sh
+git clone https://github.com/akashsuresh1/ovpn-server-setup.git && FREEDNS_URL='https://freedns.afraid.org/dynamic/update.php?YOURTOKEN' VPN_REMOTE='myvpn.domainname.com' bash ovpn-server-setup/cloudshell-deploy.sh
 ```
 
 The script prompts for:
 - **VPN port** — defaults to 1194, but a custom port is strongly recommended
 - **VPN subnet** — defaults to 10.8.0.0/24
 - **Instance type** — lists free-tier eligible types, defaults to `t4g.micro` (with `t4g.small` as capacity fallback)
+- **DNS readiness** — confirms FreeDNS is ready when both `FREEDNS_URL` and `VPN_REMOTE` are set; without them, asks you to explicitly continue without stable DNS
 - **SSH key**
   - `1` First-time setup: key pair generated, private key saved to `~/ovpn-key.pem` in CloudShell
   - `2` Returning (new account after the free plan ended): paste the public key of your existing key (`ssh-keygen -y -f ovpn-key.pem` prints it)
@@ -68,17 +72,13 @@ Then it, unattended (~15–25 min):
 2. Launches a bootstrap AL2023 instance whose user-data runs `ovpn-server-setup.sh` non-interactively, then powers off
 3. Bakes an AMI from the stopped instance, then terminates it
 4. Creates a launch template + ASG (min 0 / max 1 / desired 1) with the weekly schedule
-5. Waits for the ASG instance, pulls the profiles into `/home/cloudshell-user/<name>.ovpn` via EC2 Instance Connect (temporary key, no private key needed in CloudShell), and rewrites their `remote` line to the ASG instance IP
+5. Waits for the ASG instance, pulls the profiles into `/home/cloudshell-user/<name>.ovpn` via EC2 Instance Connect (temporary key, no private key needed in CloudShell), and sets their `remote` line to `VPN_REMOTE` (your stable hostname) or, if unset, the current ASG instance IP
 
-2. Download each profile: CloudShell → **Actions → Download file** → `/home/cloudshell-user/<name>.ovpn`. Then delete them from CloudShell (`rm ~/*.ovpn`) — they contain private keys.
-   - First-time setup: also download `/home/cloudshell-user/ovpn-key.pem` (SSH key for later admin)
-   - Fallback if the fetch failed — the script prints an `scp` command instead:
+After deployment, download each profile: CloudShell → **Actions → Download file** → `/home/cloudshell-user/<name>.ovpn`. Then delete them from CloudShell (`rm ~/*.ovpn`) — they contain private keys.
+- First-time setup: also download `/home/cloudshell-user/ovpn-key.pem` (SSH key for later admin)
+- If the automatic fetch fails, use the `scp` command printed by the script; it uses the configured hostname (or current IP) and the selected SSH key.
 
-```bash
-chmod 400 ovpn-key.pem && scp -o StrictHostKeyChecking=accept-new -i ovpn-key.pem 'ec2-user@SERVER_IP:ovpn/*.ovpn' . && sed -i.bak 's/^remote .*/remote SERVER_IP VPN_PORT/' *.ovpn
-```
-
-The `remote` IP changes on every weekly replacement — use your FreeDNS hostname for a stable address (see [FreeDNS](#freedns-dynamic-dns)).
+Without a stable DNS hostname, the server IP changes on every weekly replacement and the client profiles must be updated and redistributed. With FreeDNS configured, the profiles use the stable hostname (see [FreeDNS](#freedns-dynamic-dns)).
 
 Install the OpenVPN client from https://openvpn.net/client/ and import the `.ovpn` files.
 
@@ -92,8 +92,8 @@ Prefix the command with any of these, e.g. `NAME=vpn2 bash ovpn-server-setup/clo
 | `NAME` | `ovpn` | Resource prefix (`ovpn-sg`, `ovpn-key`, `ovpn-lt`, `ovpn-asg`) |
 | `SSH_CIDR` | `0.0.0.0/0` | Source CIDR for TCP 22 |
 | `FALLBACK_TYPES` | `t4g.small` (when primary is `t4g.micro`) | Lower-priority types when the primary has no capacity; same arch only. `""` disables |
-| `VPN_REMOTE` | bootstrap IP | Host written to `remote` in `.ovpn` (e.g. your FreeDNS hostname) |
-| `FREEDNS_URL` | unset | FreeDNS Direct URL — bakes the `@reboot` crontab line into the AMI |
+| `VPN_REMOTE` | current ASG IP | Host written to `remote` in `.ovpn`; set this to your stable DNS hostname |
+| `FREEDNS_URL` | unset | FreeDNS Direct URL — bakes the `@reboot` update into the AMI; set this so DNS follows weekly IP changes |
 | `SCHED_TZ` / `SCHED_STOP` / `SCHED_START` | `Australia/Melbourne` / `0 3 * * 3` / `10 3 * * 3` | ASG weekly schedule |
 
 ### Alternative: run on an existing instance
@@ -181,29 +181,23 @@ aws ec2 authorize-security-group-ingress \
 
 ## FreeDNS dynamic DNS
 
-The ASG launches a new instance (new public IP) every week. FreeDNS gives your server a stable hostname.
+The ASG launches a new instance (new public IP) every week. Configure FreeDNS before running the CloudShell deployment so the deploy script can bake the DNS update into the AMI and put the hostname in client profiles. The ASG itself can be created without DNS, but clients using the old IP will stop connecting after a replacement.
 
-### Setup (one-time, manual)
+### Setup (one-time, before deployment)
 
 1. Create a free account at [freedns.afraid.org](https://freedns.afraid.org)
-2. Add a subdomain (e.g. `<unique_subdomain>.<free_available_domain_name>.com`) pointing to your current public IP
+2. Add a subdomain (e.g. `<unique_subdomain>.<free_available_domain_name>.com`). The initial IP is updated when the ASG instance starts.
 3. Go to Dynamic DNS (https://freedns.afraid.org/dynamic/) → find your subdomain → right-click copy the **Direct URL**
    - It looks like: `https://freedns.afraid.org/dynamic/update.php?YOURTOKEN`
-4. Add it to root cron — either:
-   - At deploy time (baked into the AMI): `FREEDNS_URL='https://freedns.afraid.org/dynamic/update.php?YOURTOKEN' VPN_REMOTE=myvpn.chickenkiller.com bash ovpn-server-setup/cloudshell-deploy.sh`
-   - Or manually on the running instance, then [re-bake the AMI](#re-bake-the-ami-cloudshell):
+4. Run the deployment with both values set, so the updater and client profiles use the same hostname:
 
 ```bash
-# Add manually to root crontab
-sudo crontab -e
-# Add this line:
-@reboot wget -q -O /tmp/freedns_update.log 'https://freedns.afraid.org/dynamic/update.php?YOURTOKEN'
+FREEDNS_URL='https://freedns.afraid.org/dynamic/update.php?YOURTOKEN' \
+VPN_REMOTE='myvpn.domainname.com' \
+bash ovpn-server-setup/cloudshell-deploy.sh
 ```
 
-5. Update the `remote` line in all client `.ovpn` files to use the hostname instead of an IP (not needed if `VPN_REMOTE` was set):
-   ```
-   remote myvpn.chickenkiller.com <specified_port>
-   ```
+If you deploy without FreeDNS, the script writes the current server IP into the client profiles. Update the profiles' `remote` line and redistribute them after each ASG replacement. For a manually managed instance, FreeDNS can instead be configured on that instance; ensure the updater is included when you [re-bake the AMI](#re-bake-the-ami-cloudshell) if you later move it into this ASG flow.
 
 ### Verify after reboot
 

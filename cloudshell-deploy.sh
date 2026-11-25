@@ -148,6 +148,20 @@ for c in $CLIENT_NAMES; do
   [[ "$c" =~ ^[A-Za-z0-9_.-]+$ ]] || die "Invalid client name '$c' (allowed: A-Z a-z 0-9 _ . -)"
 done
 
+# ── Stable DNS readiness ──────────────────────────────────────────────────────
+if [[ -n "${FREEDNS_URL:-}" || -n "${VPN_REMOTE:-}" ]]; then
+  [[ -n "${FREEDNS_URL:-}" && -n "${VPN_REMOTE:-}" ]] \
+    || die "Set both FREEDNS_URL and VPN_REMOTE, or leave both unset."
+  echo
+  ask "Confirm FreeDNS is set up and ready for ${VPN_REMOTE}? [y/N]:" DNS_READY
+  [[ "${DNS_READY:-n}" =~ ^[Yy]$ ]] || die "Confirm FreeDNS setup before deploying."
+else
+  echo
+  warn "No stable DNS configured. Client profiles will use the current IP and stop working after an ASG replacement."
+  ask "Continue without stable DNS? [y/N]:" CONTINUE_WITHOUT_DNS
+  [[ "${CONTINUE_WITHOUT_DNS:-n}" =~ ^[Yy]$ ]] || die "Set FREEDNS_URL and VPN_REMOTE, then rerun."
+fi
+
 # ── Confirm ───────────────────────────────────────────────────────────────────
 header "Summary"
 echo -e "  ${BOLD}Region${RESET}          ${AWS_REGION}"
