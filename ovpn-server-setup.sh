@@ -16,9 +16,18 @@ header()  { echo -e "\n${BOLD}── $* ──${RESET}"; }
 
 # ── Root check ────────────────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
-  error "Run this script as root:  sudo bash setup.sh"
+  error "Run this script as root:  sudo bash ovpn-server-setup.sh"
   exit 1
 fi
+
+# ── Non-interactive mode (used by cloudshell-deploy.sh via EC2 user-data) ─────
+#   OVPN_NONINTERACTIVE=1  VPN_PORT  VPN_SUBNET  CLIENT_NAMES="a b"
+#   Optional (both modes): VPN_REMOTE (host/IP written to .ovpn), FREEDNS_URL
+NONINTERACTIVE="${OVPN_NONINTERACTIVE:-0}"
+export HOME="${HOME:-/root}"
+[[ "$NONINTERACTIVE" == 1 ]] && export EASYRSA_BATCH=1
+
+valid_client_name() { [[ "$1" =~ ^[A-Za-z0-9_.-]+$ ]]; }
 
 # =============================================================================
 # 1. USER INPUT
@@ -26,11 +35,13 @@ fi
 header "Configuration"
 
 # ── VPN port ──────────────────────────────────────────────────────────────────
-echo
-warn "Using the default port 1194 makes your VPN easier to detect and block."
-warn "A custom port (e.g. 32030) is strongly recommended."
-echo
-read -rp "$(echo -e "${BOLD}VPN port${RESET} [default: 1194]: ")" VPN_PORT
+if [[ "$NONINTERACTIVE" != 1 ]]; then
+  echo
+  warn "Using the default port 1194 makes your VPN easier to detect and block."
+  warn "A custom port (e.g. 32030) is strongly recommended."
+  echo
+  read -rp "$(echo -e "${BOLD}VPN port${RESET} [default: 1194]: ")" VPN_PORT
+fi
 VPN_PORT="${VPN_PORT:-1194}"
 if ! [[ "$VPN_PORT" =~ ^[0-9]+$ ]] || (( VPN_PORT < 1 || VPN_PORT > 65535 )); then
   error "Invalid port: $VPN_PORT"
@@ -39,8 +50,10 @@ fi
 success "Port set to $VPN_PORT"
 
 # ── VPN subnet ────────────────────────────────────────────────────────────────
-echo
-read -rp "$(echo -e "${BOLD}VPN subnet${RESET} [default: 10.8.0.0]: ")" VPN_SUBNET
+if [[ "$NONINTERACTIVE" != 1 ]]; then
+  echo
+  read -rp "$(echo -e "${BOLD}VPN subnet${RESET} [default: 10.8.0.0]: ")" VPN_SUBNET
+fi
 VPN_SUBNET="${VPN_SUBNET:-10.8.0.0}"
 success "Subnet: $VPN_SUBNET/24"
 
@@ -60,6 +73,8 @@ PUBLIC_IP=$(curl -sf --max-time 5 https://checkip.amazonaws.com || \
             curl -sf --max-time 5 https://api.ipify.org || \
             echo "UNKNOWN")
 success "Public IP: $PUBLIC_IP"
+VPN_REMOTE="${VPN_REMOTE:-$PUBLIC_IP}"
+success "Client profiles will connect to: $VPN_REMOTE"
 
 # =============================================================================
 # 3. INSTALL PACKAGES
@@ -70,7 +85,15 @@ header "Installing packages"
 # easy-rsa is NOT packaged for AL2023 — installed from GitHub below
 info "Installing openvpn, iptables-services, cron"
 dnf install -y openvpn iptables-services cronie -q
+systemctl enable --now crond
 success "Packages installed."
+
+# ── FreeDNS (optional) — same @reboot crontab line as the README ──────────────
+if [[ -n "${FREEDNS_URL:-}" ]]; then
+  FREEDNS_CRON="@reboot sleep 30 && curl -fsS -o /tmp/freedns_update.log '${FREEDNS_URL}'"
+  ( crontab -l 2>/dev/null | grep -v 'freedns.afraid.org' || true; echo "$FREEDNS_CRON" ) | crontab -
+  success "FreeDNS @reboot update added to root crontab."
+fi
 
 # =============================================================================
 # 4. EASYRSA — install latest release from GitHub
@@ -273,7 +296,7 @@ client
 dev tun
 proto udp
 
-remote ${PUBLIC_IP} ${VPN_PORT}
+remote ${VPN_REMOTE} ${VPN_PORT}
 
 resolv-retry infinite
 nobind
@@ -304,12 +327,32 @@ $(cat ${PKI_DIR}/ta.key)
 </tls-auth>
 OVPN
 
+  chmod 600 "$OVPN_OUT"
   success "Profile saved to: $OVPN_OUT"
+
+  # Copy readable by ec2-user so it can be fetched with scp (root login is disabled)
+  if id ec2-user &>/dev/null; then
+    install -d -m 700 -o ec2-user -g ec2-user /home/ec2-user/ovpn
+    install -m 600 -o ec2-user -g ec2-user "$OVPN_OUT" "/home/ec2-user/ovpn/${CLIENT_NAME}.ovpn"
+    success "Copy for scp: /home/ec2-user/ovpn/${CLIENT_NAME}.ovpn"
+  fi
 }
 
-echo
-read -rp "$(echo -e "${BOLD}Generate client certificate(s) now?${RESET} [y/N]: ")" GEN_CLIENTS
-GEN_CLIENTS="${GEN_CLIENTS:-n}"
+if [[ "$NONINTERACTIVE" == 1 ]]; then
+  for CLIENT_NAME in ${CLIENT_NAMES:-}; do
+    if ! valid_client_name "$CLIENT_NAME"; then
+      warn "Skipping invalid client name '${CLIENT_NAME}' (allowed: A-Z a-z 0-9 _ . -)"
+      continue
+    fi
+    generate_client "$CLIENT_NAME"
+  done
+  [[ -n "${CLIENT_NAMES:-}" ]] || info "No CLIENT_NAMES given -- skipping client generation."
+  GEN_CLIENTS=n
+else
+  echo
+  read -rp "$(echo -e "${BOLD}Generate client certificate(s) now?${RESET} [y/N]: ")" GEN_CLIENTS
+  GEN_CLIENTS="${GEN_CLIENTS:-n}"
+fi
 
 if [[ "${GEN_CLIENTS,,}" == "y" ]]; then
   while true; do
@@ -317,8 +360,8 @@ if [[ "${GEN_CLIENTS,,}" == "y" ]]; then
     # Read from /dev/tty explicitly — EasyRSA output can swallow stdin otherwise
     read -rp "$(echo -e "${BOLD}Client name${RESET} (e.g. laptop, phone, alice): ")" CLIENT_NAME </dev/tty
     CLIENT_NAME="${CLIENT_NAME// /-}"  # replace spaces with hyphens
-    if [[ -z "$CLIENT_NAME" ]]; then
-      warn "Name cannot be empty. Try again."
+    if ! valid_client_name "$CLIENT_NAME"; then
+      warn "Invalid name (allowed: A-Z a-z 0-9 _ . -). Try again."
       continue
     fi
     generate_client "$CLIENT_NAME"
@@ -327,7 +370,7 @@ if [[ "${GEN_CLIENTS,,}" == "y" ]]; then
     ANOTHER="${ANOTHER:-n}"
     [[ "${ANOTHER,,}" == "y" ]] || break
   done
-else
+elif [[ "$NONINTERACTIVE" != 1 ]]; then
   info "Skipping client generation. See README for manual steps."
 fi
 
@@ -338,13 +381,14 @@ header "Setup complete"
 
 echo
 echo -e "  ${BOLD}Server address${RESET}   ${PUBLIC_IP}"
+echo -e "  ${BOLD}Client remote${RESET}    ${VPN_REMOTE}"
 echo -e "  ${BOLD}Port${RESET}             ${VPN_PORT}/UDP"
 echo -e "  ${BOLD}VPN subnet${RESET}       ${VPN_SUBNET}/24"
 echo -e "  ${BOLD}WAN interface${RESET}    ${WAN_IFACE}"
 echo -e "  ${BOLD}iptables${RESET}         saved, iptables-services enabled"
 echo -e "  ${BOLD}OpenVPN${RESET}          running, enabled on boot"
 echo
-info "Client .ovpn profiles (if generated) are in /root/"
+info "Client .ovpn profiles (if generated) are in /root/ and /home/ec2-user/ovpn/"
 info "See README.md for: adding more clients, revoking certs, FreeDNS dynamic DNS, and more."
 echo
 warn "Ensure your EC2 security group allows inbound UDP ${VPN_PORT}."
